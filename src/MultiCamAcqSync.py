@@ -38,15 +38,15 @@ import logger
 
 if not __name__ == "__main__":
 	import traceback
+
 	filename = traceback.format_stack()[0]
 	log = logger.getLogger(filename.split('"')[1])
 
 NUM_IMAGES = 30  # number of images to grab
 
+
 @ray.remote
 def prepare_camera(i, cam):
-	system = PySpin.System.GetInstance()
-	cam_list = system.GetCameras()
 	# Set acquisition mode to continuous
 	node_acquisition_mode = PySpin.CEnumerationPtr(cam.GetNodeMap().GetNode('AcquisitionMode'))
 	if not PySpin.IsAvailable(node_acquisition_mode) or not PySpin.IsWritable(node_acquisition_mode):
@@ -78,17 +78,11 @@ def prepare_camera(i, cam):
 		device_serial_number = node_device_serial_number.GetValue()
 		log.VLOG(2, 'Camera %d serial number set to %s...' % (i, device_serial_number))
 
-	
 	return device_serial_number, True
 
+
 @ray.remote
-def get_image(i):
-	system = PySpin.System.GetInstance()
-	cam_list = system.GetCameras()
-	cam = cam_list[i]
-	cam.Init()
-	result = True
-	
+def get_image(cam):
 	try:
 		# Retrieve next received image and ensure image completion
 		image_result = cam.GetNextImage(1000)
@@ -96,22 +90,9 @@ def get_image(i):
 	except PySpin.SpinnakerException as ex:
 		log.error('Error: %s' % ex)
 		result = False
-	# Deinitialize camera
-	cam.DeInit()
-
-	# Release reference to camera
-	# NOTE: Unlike the C++ examples, we cannot rely on pointer objects being automatically
-	# cleaned up when going out of scope.
-	# The usage of del is preferred to assigning the variable to None.
-	del cam
-
-	# Clear camera list before releasing system
-	cam_list.Clear()
-
-	# Release system instance
-	system.ReleaseInstance()
 
 	return image_result, new_frame_time, result
+
 
 @ray.remote
 def save_image(i, image_result, device_num, n, new_frame_time):
@@ -144,6 +125,7 @@ def save_image(i, image_result, device_num, n, new_frame_time):
 
 	return result
 
+
 @ray.remote
 def release_images(image_result):
 	result = True
@@ -157,35 +139,14 @@ def release_images(image_result):
 
 	return result
 
+
 @ray.remote
-def end_acquisition(i):
-	system = PySpin.System.GetInstance()
-	cam_list = system.GetCameras()
-	cam = cam_list[i]
-	cam.Init()
-	result = True
-
+def end_acquisition(cam):
 	cam.EndAcquisition()
-
-	# Deinitialize camera
-	cam.DeInit()
-
-	# Release reference to camera
-	# NOTE: Unlike the C++ examples, we cannot rely on pointer objects being automatically
-	# cleaned up when going out of scope.
-	# The usage of del is preferred to assigning the variable to None.
-	del cam
-
-	# Clear camera list before releasing system
-	cam_list.Clear()
-
-	# Release system instance
-	system.ReleaseInstance()
-
-	return result
+	return True
 
 
-def acquire_images(num_cams):
+def acquire_images(cam_list):
 	"""
 	This function acquires and saves n=NUM_IMAGES images from each device.
 
@@ -209,20 +170,17 @@ def acquire_images(num_cams):
 		# which is too complex for an example.
 		#
 
-		system = PySpin.System.GetInstance()
-		cam_list = system.GetCameras()
+		num_cams = cam_list.GetSize()
+		cam_list = ray.put(cam_list)
+		ray.put(log)
+		results = ray.get([prepare_camera.remote(i, cam) for i, cam in enumerate(cam_list)])
 
-		install_mp_handler(log)
-
-		p = Pool(num_cams)
-		results = p.map(prepare_camera, zip(range(num_cams), cam_list))
 		device_nums = [0 for _ in range(num_cams)]
-		p.join()
-		
+
 		for i, out in enumerate(results):
 			device_nums[i] = out[0]
 			results[i] = out[1]
-			
+
 		result &= min(results)
 
 		# Retrieve, convert, and save images for each camera
@@ -235,26 +193,21 @@ def acquire_images(num_cams):
 
 		for n in range(NUM_IMAGES):
 
-			p = Pool(num_cams)
-			results = p.map(get_image, range(num_cams))
+			results = ray.get([get_image.remote(i) for i in range(num_cams)])
+
 			image_results = [PySpin.Image for _ in range(num_cams)]
 			new_frame_times = [0 for _ in range(num_cams)]
-			p.join()
 			for i, out in enumerate(results):
 				image_results[i] = out[0]
 				new_frame_times[i] = out[1]
 				results[i] = out[2]
 			result &= min(results)
 
-			p = Pool(num_cams)
-			results = p.map(save_image, zip(range(num_cams), image_results, device_nums,
-			                [n for _ in range(num_cams)], new_frame_times))
-			p.join()
+			results = ray.get([save_image.remote(i, image_results[i], device_nums[i], n, new_frame_times[i])
+			                   for i in range(num_cams)])
 			result &= min(results)
 
-			p = Pool(num_cams)
-			results = p.map(release_images, image_results)
-			p.join()
+			results = ray.get([release_images.remote(image) for image in image_results])
 			result &= min(results)
 
 			log.VLOG(2, '%%%\n')
@@ -269,9 +222,7 @@ def acquire_images(num_cams):
 		# It is possible to interact with cameras through the camera list with
 		# GetByIndex(); this is an alternative to retrieving cameras as
 		# CameraPtr objects that can be quick and easy for small tasks.
-		p = Pool(num_cams)
-		results = p.map(end_acquisition, range(num_cams))
-		p.join()
+		results = ray.get([end_acquisition.remote(cam) for cam in cam_list])
 		result &= min(results)
 
 	except PySpin.SpinnakerException as ex:
@@ -306,7 +257,8 @@ def print_device_info(nodemap, cam_num):
 			for feature in features:
 				node_feature = PySpin.CValuePtr(feature)
 				log.VLOG(3, '%s: %s' % (node_feature.GetName(),
-				                  node_feature.ToString() if PySpin.IsReadable(node_feature) else 'Node not readable'))
+				                        node_feature.ToString() if PySpin.IsReadable(
+					                        node_feature) else 'Node not readable'))
 
 		else:
 			log.warning('Device control information not available.')
@@ -319,7 +271,7 @@ def print_device_info(nodemap, cam_num):
 	return result
 
 
-def run_multiple_cameras(num_cams):
+def run_multiple_cameras(cam_list):
 	"""
 	This function acts as the body of the example; please see NodeMapInfo example
 	for more in-depth comments on setting up cameras.
@@ -345,7 +297,7 @@ def run_multiple_cameras(num_cams):
 		# acquired.
 
 		# Acquire images on all cameras
-		result &= acquire_images(num_cams)
+		result &= acquire_images(cam_list)
 
 
 	except PySpin.SpinnakerException as ex:
@@ -430,12 +382,7 @@ def main():
 		log.error('Error: %s' % ex)
 		result = False
 
-	cam_list.Clear()
-
-	# Release system instance
-	system.ReleaseInstance()
-
-	result &= run_multiple_cameras(num_cameras)
+	result &= run_multiple_cameras(cam_list)
 
 	log.VLOG(1, 'Acquisition complete... \n')
 
