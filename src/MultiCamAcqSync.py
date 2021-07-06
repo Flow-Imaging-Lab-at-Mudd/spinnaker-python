@@ -27,11 +27,8 @@ import sys
 import os
 import argparse
 import PySpin
-import psutil
-import ray
-
-num_cpus = psutil.cpu_count(logical=False)
-ray.init(num_cpus=num_cpus)
+from multiprocess_logging import install_mp_handler
+import llpyspin
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../', 'lib/'))
 import logger
@@ -45,108 +42,7 @@ if not __name__ == "__main__":
 NUM_IMAGES = 30  # number of images to grab
 
 
-@ray.remote
-def prepare_camera(i, cam):
-	# Set acquisition mode to continuous
-	node_acquisition_mode = PySpin.CEnumerationPtr(cam.GetNodeMap().GetNode('AcquisitionMode'))
-	if not PySpin.IsAvailable(node_acquisition_mode) or not PySpin.IsWritable(node_acquisition_mode):
-		log.error('Unable to set acquisition mode to continuous (node retrieval; camera %d). Aborting... \n' % i)
-		return False
-
-	node_acquisition_mode_continuous = node_acquisition_mode.GetEntryByName('Continuous')
-	if not PySpin.IsAvailable(node_acquisition_mode_continuous) or not PySpin.IsReadable(
-			node_acquisition_mode_continuous):
-		log.error('Unable to set acquisition mode to continuous (entry \'continuous\' retrieval %d). \
-					Aborting... \n' % i)
-		return False
-
-	acquisition_mode_continuous = node_acquisition_mode_continuous.GetValue()
-
-	node_acquisition_mode.SetIntValue(acquisition_mode_continuous)
-
-	log.VLOG(2, 'Camera %d acquisition mode set to continuous...' % i)
-
-	# Begin acquiring images
-	cam.BeginAcquisition()
-
-	log.VLOG(2, '%%% Camera {} started acquiring images...\n'.format(i))
-
-	node_device_serial_number = PySpin.CStringPtr(
-		cam.GetTLDeviceNodeMap().GetNode('DeviceSerialNumber'))
-
-	if PySpin.IsAvailable(node_device_serial_number) and PySpin.IsReadable(node_device_serial_number):
-		device_serial_number = node_device_serial_number.GetValue()
-		log.VLOG(2, 'Camera %d serial number set to %s...' % (i, device_serial_number))
-
-	return device_serial_number, True
-
-
-@ray.remote
-def get_image(cam):
-	try:
-		# Retrieve next received image and ensure image completion
-		image_result = cam.GetNextImage(1000)
-		new_frame_time = time.time_ns()
-	except PySpin.SpinnakerException as ex:
-		log.error('Error: %s' % ex)
-		result = False
-
-	return image_result, new_frame_time, result
-
-
-@ray.remote
-def save_image(i, image_result, device_num, n, new_frame_time):
-	try:
-		if image_result.IsIncomplete():
-			log.warning('Image incomplete with image status %d ... \n' % image_result.GetImageStatus())
-		else:
-			# Print image information
-			width = image_result.GetWidth()
-			height = image_result.GetHeight()
-			log.VLOG(2, '%%% Camera {0} grabbed image {1}, width = {2}, height = {3}'.format(
-				i, n, width, height))
-
-			# Convert image to mono 8
-			image_converted = image_result.Convert(PySpin.PixelFormat_Mono8, PySpin.HQ_LINEAR)
-
-			os.makedirs('MultiCamAcqTest', exist_ok=True)
-			# Create a unique filename
-			if device_num:
-				image_file = 'MultiCamAcqTest/MCAT-%s-%d-%d.jpg' % (device_num, n, new_frame_time)
-			else:
-				image_file = 'MultiCamAcqTest/MCAT-%d-%d-%d.jpg' % (i, n, new_frame_time)
-
-			# Save image
-			image_converted.Save(image_file)
-			log.VLOG(2, '%%% Image saved at {}'.format(image_file))
-	except PySpin.SpinnakerException as ex:
-		log.error('Error: %s' % ex)
-		result = False
-
-	return result
-
-
-@ray.remote
-def release_images(image_result):
-	result = True
-
-	try:
-		# Release image
-		image_result.Release()
-	except PySpin.SpinnakerException as ex:
-		log.error('Error: %s' % ex)
-		result = False
-
-	return result
-
-
-@ray.remote
-def end_acquisition(cam):
-	cam.EndAcquisition()
-	return True
-
-
-def acquire_images(cam_list):
+def acquire_images(device_nums):
 	"""
 	This function acquires and saves n=NUM_IMAGES images from each device.
 
@@ -170,60 +66,38 @@ def acquire_images(cam_list):
 		# which is too complex for an example.
 		#
 
-		num_cams = cam_list.GetSize()
-		cam_list = ray.put(cam_list)
-		ray.put(log)
-		results = ray.get([prepare_camera.remote(i, cam) for i, cam in enumerate(cam_list)])
+		device_nums.sort()
 
-		device_nums = [0 for _ in range(num_cams)]
+		num_cams = range(len(device_nums))
 
-		for i, out in enumerate(results):
-			device_nums[i] = out[0]
-			results[i] = out[1]
+		primary_index = 1
 
-		result &= min(results)
+		cams = []
+		for i in num_cams:
+			if i != primary_index:
+				cams += [llpyspin.SecondaryCamera(device_nums[i])]
+			else:
+				cams += [llpyspin.PrimaryCamera(device_nums[i])]
 
-		# Retrieve, convert, and save images for each camera
-		#
-		# *** NOTES ***
-		# In order to work with simultaneous camera streams, nested loops are
-		# needed. It is important that the inner loop be the one iterating
-		# through the cameras; otherwise, all images will be grabbed from a
-		# single camera before grabbing any images from another.
+		os.makedirs('MultiCamAcqTest', exist_ok=True)
+		video_files = ['MultiCamAcqTest/MCAT-%s-%d.mp4' % (device_nums[i], time.time_ns()) for i in num_cams]
 
-		for n in range(NUM_IMAGES):
+		for i in num_cams:
+			if primary_index < 0:
+				cams[i]._child.acquiring.value = 1
+			cams[i].prime(video_files[i], 20)
 
-			results = ray.get([get_image.remote(i) for i in range(num_cams)])
+		if primary_index >= 0:
+			cams[primary_index].trigger()
 
-			image_results = [PySpin.Image for _ in range(num_cams)]
-			new_frame_times = [0 for _ in range(num_cams)]
-			for i, out in enumerate(results):
-				image_results[i] = out[0]
-				new_frame_times[i] = out[1]
-				results[i] = out[2]
-			result &= min(results)
+		input('Acquiring video. Press enter to stop.')
 
-			results = ray.get([save_image.remote(i, image_results[i], device_nums[i], n, new_frame_times[i])
-			                   for i in range(num_cams)])
-			result &= min(results)
+		if primary_index >= 0:
+			cams[primary_index].stop()
 
-			results = ray.get([release_images.remote(image) for image in image_results])
-			result &= min(results)
-
-			log.VLOG(2, '%%%\n')
-
-		# End acquisition for each camera
-		#
-		# *** NOTES ***
-		# Notice that what is usually a one-step process is now two steps
-		# because of the additional step of selecting the camera. It is worth
-		# repeating that camera selection needs to be done once per loop.
-		#
-		# It is possible to interact with cameras through the camera list with
-		# GetByIndex(); this is an alternative to retrieving cameras as
-		# CameraPtr objects that can be quick and easy for small tasks.
-		results = ray.get([end_acquisition.remote(cam) for cam in cam_list])
-		result &= min(results)
+		for i in num_cams:
+			if i != primary_index:
+				cams[i].stop()
 
 	except PySpin.SpinnakerException as ex:
 		log.error('Error: %s' % ex)
@@ -262,7 +136,7 @@ def print_device_info(nodemap, cam_num):
 
 		else:
 			log.warning('Device control information not available.')
-		print()
+		log.VLOG(3, '%%%\n')
 
 	except PySpin.SpinnakerException as ex:
 		log.error('Error: %s' % ex)
@@ -271,7 +145,7 @@ def print_device_info(nodemap, cam_num):
 	return result
 
 
-def run_multiple_cameras(cam_list):
+def run_multiple_cameras(device_nums):
 	"""
 	This function acts as the body of the example; please see NodeMapInfo example
 	for more in-depth comments on setting up cameras.
@@ -295,9 +169,10 @@ def run_multiple_cameras(cam_list):
 		# *** LATER ***
 		# Each camera needs to be deinitialized once all images have been
 		# acquired.
+		install_mp_handler(logger.getLogger(__file__))
 
 		# Acquire images on all cameras
-		result &= acquire_images(cam_list)
+		result &= acquire_images(device_nums)
 
 
 	except PySpin.SpinnakerException as ex:
@@ -374,7 +249,6 @@ def main():
 			for i, cam in enumerate(cam_list):
 				# Retrieve TL device nodemap
 				nodemap_tldevice = cam.GetTLDeviceNodeMap()
-
 				# Print device information
 				result &= log_device_info(nodemap_tldevice, i, None)
 
@@ -382,7 +256,27 @@ def main():
 		log.error('Error: %s' % ex)
 		result = False
 
-	result &= run_multiple_cameras(cam_list)
+	device_nums = [0 for _ in cam_list]
+	for i, cam in enumerate(cam_list):
+		# Retrieve device serial number for filename
+		node_device_serial_number = PySpin.CStringPtr(
+			cam.GetTLDeviceNodeMap().GetNode('DeviceSerialNumber'))
+
+		if PySpin.IsAvailable(node_device_serial_number) and PySpin.IsReadable(node_device_serial_number):
+			device_serial_number = node_device_serial_number.GetValue()
+			log.VLOG(2, 'Camera %d serial number set to %s...' % (i, device_serial_number))
+
+			device_nums[i] = device_serial_number
+
+	del cam
+
+	# Clear camera list before releasing system
+	cam_list.Clear()
+
+	# Release system instance
+	system.ReleaseInstance()
+
+	result &= run_multiple_cameras(device_nums)
 
 	log.VLOG(1, 'Acquisition complete... \n')
 

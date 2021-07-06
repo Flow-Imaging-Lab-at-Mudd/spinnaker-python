@@ -1,8 +1,5 @@
-import re
 import sys
 import os
-
-from sympy import Integer
 
 from multiprocess_logging import install_mp_handler
 from multiprocessing import Pool

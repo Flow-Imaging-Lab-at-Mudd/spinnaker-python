@@ -144,45 +144,44 @@ def set_settings(cam_list, config_dict, config_dict_primary, primary_id):
 	try:
 		result = True
 
-		if log.getLevel() >= 2:
-			# Change settings of each camera
-			for i, cam in enumerate(cam_list):
-				try:
-					# Change settings for minimum processing
-					log.VLOG(2, 'Changing settings for camera %d...\n' % i)
-					
-					temp_config_dict = config_dict_primary if i == primary_id else config_dict 
-					
-					for setting in temp_config_dict:
-						result &= change_setting(i, cam, temp_config_dict[setting], setting, full_settings[setting])
+		# Change settings of each camera
+		for i, cam in enumerate(cam_list):
+			try:
+				# Change settings for minimum processing
+				log.VLOG(2, 'Changing settings for camera %d...\n' % i)
 
-					# Retrieve acquisition frame rate
-					node_acquisition_frame_rate = PySpin.CFloatPtr(cam.GetNodeMap().GetNode('AcquisitionFrameRate'))
-					if not PySpin.IsAvailable(node_acquisition_frame_rate) or not PySpin.IsReadable(
-							node_acquisition_frame_rate):
-						log.warning('Unable to read acquisition fps (node retrieval; camera {0}). Aborting... \n'.format(i))
-						return False
-					acq_frame_rate = node_acquisition_frame_rate.GetValue()
+				temp_config_dict = config_dict_primary if i == primary_id else config_dict
 
-					# Retrieve resulting frame rate
-					node_resulting_frame_rate = PySpin.CFloatPtr(cam.GetNodeMap().GetNode('AcquisitionResultingFrameRate'))
-					if not PySpin.IsAvailable(node_resulting_frame_rate) or not PySpin.IsReadable(
-							node_resulting_frame_rate):
-						log.warning('Unable to read acquisition fps (node retrieval; camera {0}). Aborting... \n'.format(i))
-						return False
-					res_frame_rate = node_resulting_frame_rate.GetValue()
+				for setting in temp_config_dict:
+					result &= change_setting(i, cam, temp_config_dict[setting], setting, full_settings[setting])
 
-					# Retrieve resulting frame rate
-					log.VLOG(2, '%%%Camera {0} settings changed with acquisition frame rate {1:.2f} '
-					      'and resulting frame rate {2:.2f}...'.format(i, acq_frame_rate, res_frame_rate))
-					if 2 < abs(acq_frame_rate - res_frame_rate):
-						log.VLOG(2, '%%% \tThey are not equal because the Exposure Time is greater than the frame time.')
+				# Retrieve acquisition frame rate
+				node_acquisition_frame_rate = PySpin.CFloatPtr(cam.GetNodeMap().GetNode('AcquisitionFrameRate'))
+				if not PySpin.IsAvailable(node_acquisition_frame_rate) or not PySpin.IsReadable(
+						node_acquisition_frame_rate):
+					log.warning('Unable to read acquisition fps (node retrieval; camera {0}). Aborting... \n'.format(i))
+					return False
+				acq_frame_rate = node_acquisition_frame_rate.GetValue()
 
-					log.VLOG(2, '%%%\n')
+				# Retrieve resulting frame rate
+				node_resulting_frame_rate = PySpin.CFloatPtr(cam.GetNodeMap().GetNode('AcquisitionResultingFrameRate'))
+				if not PySpin.IsAvailable(node_resulting_frame_rate) or not PySpin.IsReadable(
+						node_resulting_frame_rate):
+					log.warning('Unable to read acquisition fps (node retrieval; camera {0}). Aborting... \n'.format(i))
+					return False
+				res_frame_rate = node_resulting_frame_rate.GetValue()
 
-				except PySpin.SpinnakerException as ex:
-					log.error('Error: %s' % ex)
-					result = False
+				# Retrieve resulting frame rate
+				log.VLOG(1, '%%%Camera {0} settings changed with acquisition frame rate {1:.2f} '
+				      'and resulting frame rate {2:.2f}...'.format(i, acq_frame_rate, res_frame_rate))
+				if 2 < abs(acq_frame_rate - res_frame_rate):
+					log.VLOG(2, '%%% \tThey are not equal because the Exposure Time is greater than the frame time.')
+
+				log.VLOG(2, '%%%\n')
+
+			except PySpin.SpinnakerException as ex:
+				log.error('Error: %s' % ex)
+				result = False
 
 		log.VLOG(4, '*** VERIFYING SETTINGS ***\n')
 		# Print new changed camera settings
@@ -250,7 +249,7 @@ def log_device_info(nodemap, cam_num, primary_id):
 			log.warning('Device control information not available.\n')
 
 		if primary_camera:
-			log.VLOG(3, '%%% Camera {0} is the primary camera.'.format(cam_num))
+			log.VLOG(1, '%%% Camera {0} is the primary camera.'.format(cam_num))
 
 		log.VLOG(3, '%%%\n')
 
