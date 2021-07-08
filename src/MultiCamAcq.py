@@ -27,6 +27,7 @@ import sys
 import os
 import argparse
 import PySpin
+import numpy as np
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../', 'lib/'))
 import logger
@@ -37,6 +38,7 @@ if not __name__ == "__main__":
 	log = logger.getLogger(filename.split('"')[1], False, False)
 
 NUM_IMAGES = 30  # number of images to grab
+digits = np.floor(np.log10(NUM_IMAGES) + 1)
 
 
 def prepare_camera(i, cam):
@@ -114,6 +116,7 @@ def acquire_images(cam_list):
 
 			device_nums[i] = device_serial_number
 
+		os.makedirs('MultiCamAcqTest', exist_ok=True)
 		for n in range(NUM_IMAGES):
 			image_results = [PySpin.Image for _ in cam_list]
 			new_frame_times = [0 for _ in cam_list]
@@ -121,11 +124,11 @@ def acquire_images(cam_list):
 				try:
 					# Retrieve next received image and ensure image completion
 					image_results[i] = cam.GetNextImage(1000)
-					new_frame_times[i] = time.time_ns()
+					new_frame_times[i] = time.process_time()
 				except PySpin.SpinnakerException as ex:
 					log.error('Error: %s' % ex)
 					result = False
-
+			
 			for i, cam in enumerate(cam_list):
 				try:
 					if image_results[i].IsIncomplete():
@@ -140,12 +143,11 @@ def acquire_images(cam_list):
 						# Convert image to mono 8
 						image_converted = image_results[i].Convert(PySpin.PixelFormat_Mono8, PySpin.HQ_LINEAR)
 
-						os.makedirs('MultiCamAcqTest', exist_ok=True)
 						# Create a unique filename
 						if device_nums[i]:
-							image_file = 'MultiCamAcqTest/MCAT-%s-%d-%d.jpg' % (device_nums[i], n, new_frame_times[i])
+							image_file = 'MultiCamAcqTest/MCAT-{}-{:0{}f}-{}.jpg'.format(device_nums[i], n, digits, new_frame_times[i])
 						else:
-							image_file = 'MultiCamAcqTest/MCAT-%d-%d-%d.jpg' % (i, n, new_frame_times[i])
+							image_file = 'MultiCamAcqTest/MCAT-{}-{:0{}f}-{}.jpg'.format(i, n, digits, new_frame_times[i])
 
 						# Save image
 						image_converted.Save(image_file)

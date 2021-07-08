@@ -28,7 +28,8 @@ import os
 import argparse
 import PySpin
 from multiprocess_logging import install_mp_handler
-import llpyspin
+from llpyspin import primary, secondary
+import numpy as np
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../', 'lib/'))
 import logger
@@ -40,6 +41,7 @@ if not __name__ == "__main__":
 	log = logger.getLogger(filename.split('"')[1])
 
 NUM_IMAGES = 30  # number of images to grab
+framerate = 40
 
 
 def acquire_images(device_nums):
@@ -70,34 +72,54 @@ def acquire_images(device_nums):
 
 		num_cams = range(len(device_nums))
 
-		primary_index = 1
+		primary_index = -1
 
-		cams = []
-		for i in num_cams:
-			if i != primary_index:
-				cams += [llpyspin.SecondaryCamera(device_nums[i])]
-			else:
-				cams += [llpyspin.PrimaryCamera(device_nums[i])]
+		# cams = []
+		# for i in num_cams:
+		# 	if i != primary_index:
+		# 		cams += [secondary.SecondaryCamera(device_nums[i])]
+		# 	else:
+		# 		cams += [primary.PrimaryCamera(device_nums[i])]
 
 		os.makedirs('MultiCamAcqTest', exist_ok=True)
-		video_files = ['MultiCamAcqTest/MCAT-%s-%d.mp4' % (device_nums[i], time.time_ns()) for i in num_cams]
+		video_files = ['MultiCamAcqTest/MCAT-%s.mp4' % (device_nums[i]) for i in num_cams]
 
-		for i in num_cams:
-			if primary_index < 0:
-				cams[i]._child.acquiring.value = 1
-			cams[i].prime(video_files[i], 20)
+		# if primary_index >= 0:
+		# 	cams[primary_index].framerate = framerate
 
-		if primary_index >= 0:
-			cams[primary_index].trigger()
+		# for i in num_cams:
+		# 	if primary_index < 0:
+		# 		cams[i].framerate = 'max'
+		# 	if i != primary_index:
+		# 		cams[i].prime(video_files[i], framerate)
 
-		input('Acquiring video. Press enter to stop.')
+		# if primary_index >= 0:
+		# 	cams[primary_index].prime()
+		# 	cams[primary_index].trigger()
 
-		if primary_index >= 0:
-			cams[primary_index].stop()
+		secondary_cameras = [secondary.SecondaryCamera(device) for device in device_nums]
+		for camera, video_file in zip(secondary_cameras, video_files):
+			camera.framerate = 'max' # not sure if this is totally necessary, but the secondary cameras have to have an acquisition framerate >= the trigger frequency or else the acquisition will fail
+			camera.prime(video_file, framerate)
+		# start the hardware trigger and record as long as you'd like
+		curr_time = time.process_time()
 
-		for i in num_cams:
-			if i != primary_index:
-				cams[i].stop()
+		while time.process_time() < curr_time + 5:
+			continue
+		# stop the hardware trigger
+		# timestamps = np.zeros((NUM_IMAGES, len(device_nums)))
+
+		for camera, i in zip(secondary_cameras, num_cams):
+			timestamps = camera.stop() # do whatever you want with the timestamps
+
+		# if primary_index >= 0:
+		# 	timestamps[:][primary_index] = cams[primary_index].stop()
+
+		# for i in num_cams:
+		# 	if i != primary_index:
+		# 		timestamps[:][i] = cams[i].stop()
+
+		np.savetxt('MCAT-timestamps.csv', timestamps, delimiter=',')
 
 	except PySpin.SpinnakerException as ex:
 		log.error('Error: %s' % ex)
