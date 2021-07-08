@@ -26,6 +26,7 @@ import time
 import sys
 import os
 import argparse
+import configparser
 import PySpin
 from multiprocess_logging import install_mp_handler
 from llpyspin import primary, secondary
@@ -41,91 +42,6 @@ if not __name__ == "__main__":
 	log = logger.getLogger(filename.split('"')[1])
 
 NUM_IMAGES = 30  # number of images to grab
-framerate = 40
-
-
-def acquire_images(device_nums):
-	"""
-	This function acquires and saves n=NUM_IMAGES images from each device.
-
-	:param num_cams: Number of cameras
-	:type num_cams: int
-	:return: True if successful, False otherwise.
-	:rtype: bool
-	"""
-
-	log.VLOG(2, '*** IMAGE ACQUISITION ***\n')
-	try:
-		result = True
-
-		# Prepare each camera to acquire images
-		#
-		# *** NOTES ***
-		# For pseudo-simultaneous streaming, each camera is prepared as if it
-		# were just one, but in a loop. Notice that cameras are selected with
-		# an index. We demonstrate pseduo-simultaneous streaming because true
-		# simultaneous streaming would require multiple process or threads,
-		# which is too complex for an example.
-		#
-
-		device_nums.sort()
-
-		num_cams = range(len(device_nums))
-
-		primary_index = -1
-
-		# cams = []
-		# for i in num_cams:
-		# 	if i != primary_index:
-		# 		cams += [secondary.SecondaryCamera(device_nums[i])]
-		# 	else:
-		# 		cams += [primary.PrimaryCamera(device_nums[i])]
-
-		os.makedirs('MultiCamAcqTest', exist_ok=True)
-		video_files = ['MultiCamAcqTest/MCAT-%s.mp4' % (device_nums[i]) for i in num_cams]
-
-		# if primary_index >= 0:
-		# 	cams[primary_index].framerate = framerate
-
-		# for i in num_cams:
-		# 	if primary_index < 0:
-		# 		cams[i].framerate = 'max'
-		# 	if i != primary_index:
-		# 		cams[i].prime(video_files[i], framerate)
-
-		# if primary_index >= 0:
-		# 	cams[primary_index].prime()
-		# 	cams[primary_index].trigger()
-
-		secondary_cameras = [secondary.SecondaryCamera(device) for device in device_nums]
-		for camera, video_file in zip(secondary_cameras, video_files):
-			camera.framerate = 'max' # not sure if this is totally necessary, but the secondary cameras have to have an acquisition framerate >= the trigger frequency or else the acquisition will fail
-			camera.prime(video_file, framerate)
-		# start the hardware trigger and record as long as you'd like
-		curr_time = time.process_time()
-
-		while time.process_time() < curr_time + 5:
-			continue
-		# stop the hardware trigger
-		# timestamps = np.zeros((NUM_IMAGES, len(device_nums)))
-
-		for camera, i in zip(secondary_cameras, num_cams):
-			timestamps = camera.stop() # do whatever you want with the timestamps
-
-		# if primary_index >= 0:
-		# 	timestamps[:][primary_index] = cams[primary_index].stop()
-
-		# for i in num_cams:
-		# 	if i != primary_index:
-		# 		timestamps[:][i] = cams[i].stop()
-
-		np.savetxt('MCAT-timestamps.csv', timestamps, delimiter=',')
-
-	except PySpin.SpinnakerException as ex:
-		log.error('Error: %s' % ex)
-		result = False
-
-	return result
 
 
 def print_device_info(nodemap, cam_num):
@@ -167,7 +83,7 @@ def print_device_info(nodemap, cam_num):
 	return result
 
 
-def run_multiple_cameras(device_nums):
+def run_multiple_cameras(device_nums, framerate):
 	"""
 	This function acts as the body of the example; please see NodeMapInfo example
 	for more in-depth comments on setting up cameras.
@@ -177,25 +93,65 @@ def run_multiple_cameras(device_nums):
 	:return: True if successful, False otherwise.
 	:rtype: bool
 	"""
+	result = True
+
+	install_mp_handler(logger.getLogger(__file__))
+
+	# Acquire images on all cameras
+	log.VLOG(2, '*** IMAGE ACQUISITION ***\n')
+
 	try:
-		result = True
+		device_nums.sort()
 
-		# Initialize each camera
-		#
-		# *** NOTES ***
-		# You may notice that the steps in this function have more loops with
-		# less steps per loop; this contrasts the AcquireImages() function
-		# which has less loops but more steps per loop. This is done for
-		# demonstrative purposes as both work equally well.
-		#
-		# *** LATER ***
-		# Each camera needs to be deinitialized once all images have been
-		# acquired.
-		install_mp_handler(logger.getLogger(__file__))
+		num_cams = range(len(device_nums))
 
-		# Acquire images on all cameras
-		result &= acquire_images(device_nums)
+		primary_index = -1
 
+		cams = []
+		for i in num_cams:
+			if i != primary_index:
+				cams += [secondary.SecondaryCamera(device_nums[i])]
+			else:
+				cams += [primary.PrimaryCamera(device_nums[i])]
+
+		os.makedirs('MultiCamAcqTest', exist_ok=True)
+		video_files = ['MultiCamAcqTest/MCAT-%s.avi' % (device_nums[i]) for i in num_cams]
+
+		if primary_index >= 0:
+			cams[primary_index].framerate = framerate
+
+		for i in num_cams:
+			if primary_index < 0:
+				cams[i].framerate = 'max'
+			if i != primary_index:
+				cams[i].prime(video_files[i], framerate, backend='spinnaker')
+
+		if primary_index >= 0:
+			cams[primary_index].prime(backend='spinnaker')
+			cams[primary_index].trigger()
+
+		# start the hardware trigger and record as long as you'd like
+		input('Starting acquisition. Press Enter to stop.')
+		# stop the hardware trigger
+
+		if primary_index < 0:
+			primary_index = 0
+
+		timestamps = [cams[primary_index].stop()]
+
+		for i in num_cams:
+			if i != primary_index:
+				timestamps += [cams[i].stop()]
+
+		lengths = [len(x) for x in timestamps]
+
+		assert min(lengths) == max(lengths), "Timestamp lengths are not equal! Min: {}, Max: {}".format(min(lengths), max(lengths))
+
+		timestamp_list = np.array(timestamps)
+
+		timestamp_list[[0, primary_index]] = timestamp_list[[primary_index, 0]]
+
+		np.savetxt('MCAT-timestamps.csv', timestamp_list / 1e3, delimiter=',')
 
 	except PySpin.SpinnakerException as ex:
 		log.error('Error: %s' % ex)
@@ -204,7 +160,7 @@ def run_multiple_cameras(device_nums):
 	return result
 
 
-def main():
+def main(framerate):
 	"""
 	Example entry point; please see Enumeration example for more in-depth
 	comments on preparing and cleaning up the system.
@@ -298,12 +254,29 @@ def main():
 	# Release system instance
 	system.ReleaseInstance()
 
-	result &= run_multiple_cameras(device_nums)
+	result &= run_multiple_cameras(device_nums, framerate)
 
 	log.VLOG(1, 'Acquisition complete... \n')
 
 	log.VLOG(1, 'Done! Exiting...')
 	return result
+
+
+def parseConfigFile(config_path, section):
+	# read settings parameters from a configuration file
+	# Input:
+	# config_path - string with relative path to configuration file
+	#
+	# Outputs:
+	# config_dict - dictionary with new configurations
+
+	# create config parser and read config file
+	config = configparser.ConfigParser(interpolation=configparser.BasicInterpolation())
+	config.read(config_path)
+	p = {}
+	p_config = config[section]
+
+	return p_config.getint('AcquisitionFrameRate')
 
 
 if __name__ == '__main__':
@@ -319,7 +292,19 @@ if __name__ == '__main__':
 
 	from SetSettings import log_device_info
 
-	if main():
-		sys.exit(0)
+	config = configparser.ConfigParser(interpolation=configparser.BasicInterpolation())
+	config.read(config_path)
+	if dict(config['default'].items()) == {}:
+		framerate1 = parseConfigFile(config_path, 'primary')
+		framerate2 = parseConfigFile(config_path, 'secondary')
+		assert(framerate1 == framerate2)
+		if main(framerate1):
+			sys.exit(0)
+		else:
+			sys.exit(1)
 	else:
-		sys.exit(1)
+		framerate = parseConfigFile(config_path, 'default')
+		if main(framerate):
+			sys.exit(0)
+		else:
+			sys.exit(1)

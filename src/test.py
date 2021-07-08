@@ -51,6 +51,8 @@ def main():
 def interpret_file(sync):
 	if sync:
 		all_times = np.loadtxt('MCAT-timestamps.csv', delimiter=',')
+		all_times = all_times.tolist()
+		frames = len(all_times)
 	else:
 		lines = sorted(glob.glob(os.path.join('MultiCamAcqTest', '*')))
 		lines = [line.split("-") for line in lines]
@@ -61,19 +63,30 @@ def interpret_file(sync):
 			frame_nums = [lines[i + (j * frames)][1] for j in range(len(lines) // frames)]
 			if len(set(frame_nums)) > 1 or sum(frame_nums) / len(frame_nums) != i:
 				print("Uh oh, our frames are: {}".format(frame_nums))
-			all_times += [lines[i + (j * frames)][2] for j in range(len(lines) // frames)]
+			all_times += [[lines[i + (j * frames)][2] for j in range(len(lines) // frames)]]
 	prev_time = 0
+	fps_list = []
+	distance_list = []
 	for i in range(frames):
 		times = all_times[i]
 		avgTime = sum(times) / len(times)
 		next_time = avgTime
-		fps = 1 / (next_time - prev_time)
-		distances = [time - min(times) for time in times]
+		fps = 0 if next_time - prev_time == 0 else (1 / (next_time - prev_time))
+		distances = [round(time - min(times), 5) for time in times]
 		print("----------- FRAME {0} -----------".format(i))
-		print("average capture time (ns): {0}".format(avgTime))
-		print("                distances: {0}".format(distances))
-		print("                      fps: {0}".format(fps))
+		print("average capture time (s): {0}".format(avgTime))
+		print("               distances: {0}".format(distances))
+		print("                     fps: {0}".format(fps))
+		fps_list += [fps]
+		distance_list += [sum(distances) / len(distances)]
 		prev_time = next_time
+	
+	avgFPS = sum(fps_list) / len(fps_list)
+	print()
+	print('---------------------------------')
+	print('                 AVERAGE FPS: {}'.format(avgFPS))
+	print('            AVERAGE DISTANCE: {}'.format(sum(distance_list) / len(distance_list)))
+	print("FRAMES NOT WITHIN 5% AVG FPS: {}".format(list(filter(lambda x: np.abs(x[1] - fps_list) / fps_list > 0.05, enumerate(fps_list)))))
 
 
 
@@ -85,7 +98,6 @@ if __name__ == '__main__':
 	parser.add_argument('-l', '--logType', help='style of log print messages (cpp (default), pretty)', type=str,
 	                    default="cpp")
 	args = parser.parse_args()
-	config_path = args.config_file
 	log = logger.getLogger(__file__, args.verbosity, args.logType)
 
 	interpret_file(args.sync)
