@@ -145,13 +145,20 @@ def run_multiple_cameras(device_nums, framerate):
 
 		lengths = [len(x) for x in timestamps]
 
-		assert min(lengths) == max(lengths), "Timestamp lengths are not equal! Min: {}, Max: {}".format(min(lengths), max(lengths))
+		if max(lengths) != min(lengths):
+			if len(timestamps) > 5:
+				message = "Min: {}, Max: {}".format(min(lengths), max(lengths))
+			else:
+				message = lengths
+			log.warning("Timestamp lengths are not equal! {}".format(message))
+			log.info("Resulting timestamps will be cropped.")
+			# line up frames
+			timestamps = [times[:min(lengths)] for times in timestamps]
 
 		timestamp_list = np.array(timestamps)
-
 		timestamp_list[[0, primary_index]] = timestamp_list[[primary_index, 0]]
-
 		np.savetxt('MCAT-timestamps.csv', timestamp_list / 1e3, delimiter=',')
+
 
 	except PySpin.SpinnakerException as ex:
 		log.error('Error: %s' % ex)
