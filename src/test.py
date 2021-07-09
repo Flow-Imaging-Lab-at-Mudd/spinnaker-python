@@ -10,6 +10,7 @@ import logger
 import glob
 import os
 import numpy as np
+from scipy import stats
 
 if not __name__ == "__main__":
 	import traceback
@@ -51,8 +52,7 @@ def main():
 def interpret_file(sync):
 	if sync:
 		all_times = np.loadtxt('MCAT-timestamps.csv', delimiter=',')
-		all_times = all_times.tolist()
-		frames = len(all_times)
+		frames = all_times.shape[0]
 	else:
 		lines = sorted(glob.glob(os.path.join('MultiCamAcqTest', '*')))
 		lines = [line.split("-") for line in lines]
@@ -64,29 +64,43 @@ def interpret_file(sync):
 			if len(set(frame_nums)) > 1 or sum(frame_nums) / len(frame_nums) != i:
 				print("Uh oh, our frames are: {}".format(frame_nums))
 			all_times += [[lines[i + (j * frames)][2] for j in range(len(lines) // frames)]]
-	prev_time = 0
-	fps_list = []
-	distance_list = []
-	for i in range(frames):
-		times = all_times[i]
-		avgTime = sum(times) / len(times)
-		next_time = avgTime
-		fps = 0 if next_time - prev_time == 0 else (1 / (next_time - prev_time))
-		distances = [round(time - min(times), 5) for time in times]
-		print("----------- FRAME {0} -----------".format(i))
-		print("average capture time (s): {0}".format(avgTime))
-		print("               distances: {0}".format(distances))
-		print("                     fps: {0}".format(fps))
-		fps_list += [fps]
-		distance_list += [sum(distances) / len(distances)]
-		prev_time = next_time
+		all_times = np.array(all_times)
+
+	prev_time = [0]
+	mult = int(10 ** (np.log10(frames) - 1))
+	fps_list = np.zeros((int(frames / mult), mult))
+	distance_list = np.zeros((int(frames / mult), all_times.shape[1], mult))
+	for i in range(int(frames / mult)):
+		times = all_times[mult*i:,:] if mult * (i + 1) > frames else all_times[mult * i  : mult * (i + 1),:]
+		avgTime = [np.sum(time) / time.size for time in times]
+
+		fps = [0 if avgTime[0] == prev_time[-1] else (1 / (avgTime[0] - prev_time[-1]))]
+		fps += [0 if avgTime[i] == avgTime[i+1] else (1 / (avgTime[i+1] - avgTime[i])) for i in range(mult - 1)]
+		fps = np.array(fps)
+
+		distances = np.transpose(np.array([[item - np.min(time) for item in time] for time in times]))
+		display_distances = [np.round(stats.trim_mean(distance, 0.1), decimals=5) for distance in distances]
+
+		message = 'FRAMES {}-{}'.format(i * mult, (i+1) * mult - 1) if mult > 1 else 'FRAME {}'.format(i)
+		print("----------- {} -----------".format(message))
+		if mult == 1:
+			print("average capture time (s): {0}".format(avgTime))
+		print("               distances: {0}".format(display_distances))
+		print("                     fps: {0}".format(np.mean(fps)))
+
+		fps_list[i,:] = fps
+		distance_list[i, :, :] = distances
+		prev_time = avgTime
+
+	fps_list = np.reshape(fps_list, -1)
+	distance_list = np.reshape(distance_list, -1)
 	
-	avgFPS = sum(fps_list) / len(fps_list)
+	avgFPS = stats.trim_mean(fps_list, 0.1)
 	print()
-	print('---------------------------------')
+	print('-------------------------------------------')
 	print('                 AVERAGE FPS: {}'.format(avgFPS))
-	print('            AVERAGE DISTANCE: {}'.format(sum(distance_list) / len(distance_list)))
-	print("FRAMES NOT WITHIN 5% AVG FPS: {}".format(list(filter(lambda x: np.abs(x[1] - fps_list) / fps_list > 0.05, enumerate(fps_list)))))
+	print('            AVERAGE DISTANCE: {}'.format(np.round(stats.trim_mean(distance_list, 0.1), decimals=7)))
+	print("FRAMES NOT WITHIN 5% AVG FPS: {}".format(list(filter(lambda x: np.abs(x[1] - avgFPS) / avgFPS > 0.05, enumerate(fps_list)))))
 
 
 

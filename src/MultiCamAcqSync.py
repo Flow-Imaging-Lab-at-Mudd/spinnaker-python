@@ -83,7 +83,7 @@ def print_device_info(nodemap, cam_num):
 	return result
 
 
-def run_multiple_cameras(device_nums, framerate):
+def run_multiple_cameras(device_nums, framerate, primary_index):
 	"""
 	This function acts as the body of the example; please see NodeMapInfo example
 	for more in-depth comments on setting up cameras.
@@ -105,7 +105,8 @@ def run_multiple_cameras(device_nums, framerate):
 
 		num_cams = range(len(device_nums))
 
-		primary_index = -1
+		if primary_index != -1:
+			primary_index = device_nums.index(primary_index)
 
 		cams = []
 		for i in num_cams:
@@ -127,11 +128,14 @@ def run_multiple_cameras(device_nums, framerate):
 				cams[i].prime(video_files[i], framerate, backend='spinnaker')
 
 		if primary_index >= 0:
-			cams[primary_index].prime(backend='spinnaker')
+			cams[primary_index].prime(video_files[primary_index], backend='spinnaker')
 			cams[primary_index].trigger()
 
 		# start the hardware trigger and record as long as you'd like
-		input('Starting acquisition. Press Enter to stop.')
+		if primary_index >= 0:
+			input('Starting acquisition. Press Enter to stop.')
+		else:
+			input('To start acquisition, turn on your trigger.\nTo stop acquisition, turn off your trigger. Then press Enter.')
 		# stop the hardware trigger
 
 		if primary_index < 0:
@@ -155,7 +159,7 @@ def run_multiple_cameras(device_nums, framerate):
 			# line up frames
 			timestamps = [times[:min(lengths)] for times in timestamps]
 
-		timestamp_list = np.array(timestamps)
+		timestamp_list = np.transpose(np.array(timestamps))
 		timestamp_list[[0, primary_index]] = timestamp_list[[primary_index, 0]]
 		np.savetxt('MCAT-timestamps.csv', timestamp_list / 1e3, delimiter=',')
 
@@ -167,7 +171,7 @@ def run_multiple_cameras(device_nums, framerate):
 	return result
 
 
-def main(framerate):
+def main(framerate, primary_index):
 	"""
 	Example entry point; please see Enumeration example for more in-depth
 	comments on preparing and cleaning up the system.
@@ -261,7 +265,7 @@ def main(framerate):
 	# Release system instance
 	system.ReleaseInstance()
 
-	result &= run_multiple_cameras(device_nums, framerate)
+	result &= run_multiple_cameras(device_nums, framerate, primary_index)
 
 	log.VLOG(1, 'Acquisition complete... \n')
 
@@ -283,6 +287,15 @@ def parseConfigFile(config_path, section):
 	p = {}
 	p_config = config[section]
 
+
+	if section == 'primary':
+		if p_config.getboolean('V3_3Enable') is not None:
+			primary_id = p_config.get('PrimaryID')
+		else:
+			primary_id = -1
+
+		return p_config.getint('AcquisitionFrameRate'), primary_id
+
 	return p_config.getint('AcquisitionFrameRate')
 
 
@@ -302,16 +315,16 @@ if __name__ == '__main__':
 	config = configparser.ConfigParser(interpolation=configparser.BasicInterpolation())
 	config.read(config_path)
 	if dict(config['default'].items()) == {}:
-		framerate1 = parseConfigFile(config_path, 'primary')
+		framerate1, primary_id = parseConfigFile(config_path, 'primary')
 		framerate2 = parseConfigFile(config_path, 'secondary')
 		assert(framerate1 == framerate2)
-		if main(framerate1):
+		if main(framerate1, primary_id):
 			sys.exit(0)
 		else:
 			sys.exit(1)
 	else:
 		framerate = parseConfigFile(config_path, 'default')
-		if main(framerate):
+		if main(framerate, -1):
 			sys.exit(0)
 		else:
 			sys.exit(1)
