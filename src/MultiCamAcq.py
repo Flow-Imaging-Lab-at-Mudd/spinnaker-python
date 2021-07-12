@@ -22,7 +22,7 @@
 # This example reads similarly to the Acquisition example,
 # except that loops are used to allow for simultaneous acquisitions.
 
-import time
+import datetime as dt
 import sys
 import os
 import argparse
@@ -117,6 +117,7 @@ def acquire_images(cam_list):
 			device_nums[i] = device_serial_number
 
 		os.makedirs('MultiCamAcqTest', exist_ok=True)
+		start_time = dt.datetime.now()
 		for n in range(NUM_IMAGES):
 			image_results = [PySpin.Image for _ in cam_list]
 			new_frame_times = [0 for _ in cam_list]
@@ -124,7 +125,7 @@ def acquire_images(cam_list):
 				try:
 					# Retrieve next received image and ensure image completion
 					image_results[i] = cam.GetNextImage(1000)
-					new_frame_times[i] = time.process_time()
+					new_frame_times[i] = (dt.datetime.now() - start_time).total_seconds()
 				except PySpin.SpinnakerException as ex:
 					log.error('Error: %s' % ex)
 					result = False

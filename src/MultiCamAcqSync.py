@@ -31,6 +31,7 @@ import PySpin
 from multiprocess_logging import install_mp_handler
 from llpyspin import primary, secondary
 import numpy as np
+import datetime as dt
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../', 'lib/'))
 import logger
@@ -83,7 +84,7 @@ def print_device_info(nodemap, cam_num):
 	return result
 
 
-def run_multiple_cameras(device_nums, framerate, primary_index):
+def run_multiple_cameras(device_nums, framerate, primary_index, capture_num):
 	"""
 	This function acts as the body of the example; please see NodeMapInfo example
 	for more in-depth comments on setting up cameras.
@@ -116,7 +117,11 @@ def run_multiple_cameras(device_nums, framerate, primary_index):
 				cams += [primary.PrimaryCamera(device_nums[i])]
 
 		os.makedirs('MultiCamAcqTest', exist_ok=True)
-		video_files = ['MultiCamAcqTest/MCAT-%s.avi' % (device_nums[i]) for i in num_cams]
+		if capture_num > 0:
+			os.makedirs('MultiCamAcqTest/{}'.format(capture_num), exist_ok=True)
+			video_files = ['MultiCamAcqTest/{}/MCAT-{}.avi'.format(capture_num, device_nums[i]) for i in num_cams]
+		else:
+			video_files = ['MultiCamAcqTest/MCAT-%s.avi' % (device_nums[i]) for i in num_cams]
 
 		if primary_index >= 0:
 			cams[primary_index].framerate = framerate
@@ -125,15 +130,19 @@ def run_multiple_cameras(device_nums, framerate, primary_index):
 			if primary_index < 0:
 				cams[i].framerate = 'max'
 			if i != primary_index:
-				cams[i].prime(video_files[i], framerate, backend='spinnaker')
+				cams[i].prime(video_files[i], framerate, backend='opencv')
 
 		if primary_index >= 0:
-			cams[primary_index].prime(video_files[primary_index], backend='spinnaker')
+			cams[primary_index].prime(video_files[primary_index], backend='opencv')
 			cams[primary_index].trigger()
 
 		# start the hardware trigger and record as long as you'd like
 		if primary_index >= 0:
-			input('Starting acquisition. Press Enter to stop.')
+			if capture_num > 0:
+				time.sleep(capture_num / framerate)
+				print(dt.datetime.now())
+			else:
+				input('Starting acquisition. Press Enter to stop.')
 		else:
 			input('To start acquisition, turn on your trigger.\nTo stop acquisition, turn off your trigger. Then press Enter.')
 		# stop the hardware trigger
@@ -146,8 +155,12 @@ def run_multiple_cameras(device_nums, framerate, primary_index):
 		for i in num_cams:
 			if i != primary_index:
 				timestamps += [cams[i].stop()]
-
-		lengths = [len(x) for x in timestamps]
+		
+		try:
+			lengths = [len(x) for x in timestamps]
+		except:
+			log.error('ERROR: Could not acquire video. Exiting...')
+			return False
 
 		if max(lengths) != min(lengths):
 			if len(timestamps) > 5:
@@ -161,7 +174,12 @@ def run_multiple_cameras(device_nums, framerate, primary_index):
 
 		timestamp_list = np.transpose(np.array(timestamps))
 		timestamp_list[[0, primary_index]] = timestamp_list[[primary_index, 0]]
-		np.savetxt('MCAT-timestamps.csv', timestamp_list / 1e3, delimiter=',')
+		
+		if capture_num > 0:
+			os.makedirs('Timestamps', exist_ok=True)
+			np.savetxt('Timestamps/MCAT-timestamps-{}.csv'.format(capture_num), timestamp_list / 1e3, delimiter=',')
+		else:
+			np.savetxt('MCAT-timestamps.csv', timestamp_list / 1e3, delimiter=',')
 
 
 	except PySpin.SpinnakerException as ex:
@@ -171,7 +189,7 @@ def run_multiple_cameras(device_nums, framerate, primary_index):
 	return result
 
 
-def main(framerate, primary_index):
+def main(framerate, primary_index, capture_num=-1):
 	"""
 	Example entry point; please see Enumeration example for more in-depth
 	comments on preparing and cleaning up the system.
@@ -265,7 +283,7 @@ def main(framerate, primary_index):
 	# Release system instance
 	system.ReleaseInstance()
 
-	result &= run_multiple_cameras(device_nums, framerate, primary_index)
+	result &= run_multiple_cameras(device_nums, framerate, primary_index, capture_num)
 
 	log.VLOG(1, 'Acquisition complete... \n')
 
@@ -317,7 +335,7 @@ if __name__ == '__main__':
 	if dict(config['default'].items()) == {}:
 		framerate1, primary_id = parseConfigFile(config_path, 'primary')
 		framerate2 = parseConfigFile(config_path, 'secondary')
-		assert(framerate1 == framerate2)
+		assert framerate1 == framerate2, "Primary and secondary camera frame rates are unequal!"
 		if main(framerate1, primary_id):
 			sys.exit(0)
 		else:
