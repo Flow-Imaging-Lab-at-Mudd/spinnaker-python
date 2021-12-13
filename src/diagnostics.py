@@ -51,7 +51,7 @@ def main():
 	return result
 
 
-def interpret_file(sync, summary=False, framerate = -1, frame_total=0):
+def interpret_file(sync, summary=False, framerate=-1, frame_total=0):
 	if sync:
 		if summary:
 			all_times = np.loadtxt('Timestamps/MCAT-timestamps-{}.csv'.format(frame_total), delimiter=',')

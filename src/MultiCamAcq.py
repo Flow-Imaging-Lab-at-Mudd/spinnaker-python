@@ -37,9 +37,7 @@ if not __name__ == "__main__":
 	filename = traceback.format_stack()[0]
 	log = logger.getLogger(filename.split('"')[1], False, False)
 
-NUM_IMAGES = 30  # number of images to grab
-digits = np.floor(np.log10(NUM_IMAGES) + 1)
-
+NUM_IMAGES = 1  # number of images to grab
 
 def prepare_camera(i, cam):
 	# Set acquisition mode to continuous
@@ -69,15 +67,23 @@ def prepare_camera(i, cam):
 	return True
 
 
-def acquire_images(cam_list):
+def acquire_images(cam_list, num_frames, folder):
 	"""
-	This function acquires and saves n=NUM_IMAGES images from each device.
+	This function acquires and saves n=num_frames images from each device.
 
 	:param cam_list: List of cameras
+	:param num_frames: Number of frames to capture
+	:param folder: Folder name
 	:type cam_list: CameraList
+	:type num_frames: int
+	:type folder: str
 	:return: True if successful, False otherwise.
 	:rtype: bool
 	"""
+
+	if num_frames is None:
+		num_frames = NUM_IMAGES
+	digits = np.floor(np.log10(num_frames) + 1)
 
 	log.VLOG(2, '*** IMAGE ACQUISITION ***\n')
 	try:
@@ -117,8 +123,12 @@ def acquire_images(cam_list):
 			device_nums[i] = device_serial_number
 
 		os.makedirs('MultiCamAcqTest', exist_ok=True)
+		if folder is not None and num_frames > 1:
+			os.makedirs('MultiCamAcqTest/{}'.format(folder), exist_ok=True)
+
 		start_time = dt.datetime.now()
-		for n in range(NUM_IMAGES):
+		cam_digits = np.floor(np.log10(len(cam_list)) + 1)
+		for n in range(num_frames):
 			image_results = [PySpin.Image for _ in cam_list]
 			new_frame_times = [0 for _ in cam_list]
 			for i, cam in enumerate(cam_list):
@@ -145,11 +155,15 @@ def acquire_images(cam_list):
 						image_converted = image_results[i].Convert(PySpin.PixelFormat_Mono8, PySpin.HQ_LINEAR)
 
 						# Create a unique filename
-						if device_nums[i]:
-							image_file = 'MultiCamAcqTest/MCAT-{}-{:0{}f}-{}.jpg'.format(device_nums[i], n, digits, new_frame_times[i])
+						if folder is None or num_frames > 1:
+							img_folder = 'MultiCamAcqTest' if folder is None else 'MultiCamAcqTest/{}'.format(folder)
+							image_file = '{}/MCAT-{}-{:0{}f}-{}.jpg'.format(
+								img_folder, device_nums[i] if device_nums[i] else i, n, digits, new_frame_times[i])
 						else:
-							image_file = 'MultiCamAcqTest/MCAT-{}-{:0{}f}-{}.jpg'.format(i, n, digits, new_frame_times[i])
-
+							cam_folder = 'cam{:0{}f}'.format(i + 1, cam_digits)
+							os.makedirs('MultiCamAcqTest/{}'.format(cam_folder), exist_ok=True)
+							image_file = 'MultiCamAcqTest/{}/{}.jpg'.format(
+								cam_folder, folder)
 						# Save image
 						image_converted.Save(image_file)
 						log.VLOG(2, '%%% Image saved at {}'.format(image_file))
@@ -226,13 +240,17 @@ def print_device_info(nodemap, cam_num):
 	return result
 
 
-def run_multiple_cameras(cam_list):
+def run_multiple_cameras(cam_list, num_frames, folder):
 	"""
 	This function acts as the body of the example; please see NodeMapInfo example
 	for more in-depth comments on setting up cameras.
 
 	:param cam_list: List of cameras
+	:param num_frames: Number of frames to capture
+	:param folder: Folder name
 	:type cam_list: CameraList
+	:type num_frames: int
+	:type folder: str
 	:return: True if successful, False otherwise.
 	:rtype: bool
 	"""
@@ -272,7 +290,7 @@ def run_multiple_cameras(cam_list):
 			cam.Init()
 
 		# Acquire images on all cameras
-		result &= acquire_images(cam_list)
+		result &= acquire_images(cam_list, num_frames, folder)
 
 		# Deinitialize each camera
 		#
@@ -296,7 +314,7 @@ def run_multiple_cameras(cam_list):
 	return result
 
 
-def main():
+def main(num_frames=None, folder=None):
 	"""
 	Example entry point; please see Enumeration example for more in-depth
 	comments on preparing and cleaning up the system.
@@ -347,7 +365,7 @@ def main():
 	# Run example on all cameras
 	log.VLOG(1, 'Running acquisition for all cameras...')
 
-	result = run_multiple_cameras(cam_list)
+	result = run_multiple_cameras(cam_list, num_frames, folder)
 
 	log.VLOG(1, 'Acquisition complete... \n')
 
@@ -374,7 +392,7 @@ if __name__ == '__main__':
 
 	from SetSettings import log_device_info
 
-	if main():
+	if main(folder="0"):
 		sys.exit(0)
 	else:
 		sys.exit(1)
