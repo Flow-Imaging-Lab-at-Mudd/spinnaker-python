@@ -112,10 +112,8 @@ def run_multiple_cameras(device_nums, framerate, primary_index, capture_num):
 		for i in num_cams:
 			if i != primary_index:
 				cams += [secondary.SecondaryCamera(device_nums[i])]
-				log.VLOG(3, 'Secondary camera added')
 			else:
 				cams += [primary.PrimaryCamera(device_nums[i])]
-				log.VLOG(3, 'Primary camera added')
 				
 		os.makedirs('MultiCamAcqTest', exist_ok=True)
 		if capture_num > 0:
@@ -130,7 +128,7 @@ def run_multiple_cameras(device_nums, framerate, primary_index, capture_num):
 		for i in num_cams:
 			if primary_index < 0:
 				cams[i].framerate = 'max'
-				log.VLOG(3, 'Setting camera frame rate to maximum')
+				log.VLOG(4, 'Setting camera frame rate to maximum')
 			if i != primary_index:
 				cams[i].prime(video_files[i], framerate, backend='opencv')
 
@@ -337,8 +335,8 @@ if __name__ == '__main__':
 		framerate1, primary_id = parseConfigFile(config_path, 'primary')
 		framerate2 = parseConfigFile(config_path, 'secondary')
 
-		log.VLOG(3, 'Frame rate set for primary camera to %d' % framerate1)
-		log.VLOG(3, 'Frame rate set for secondary cameras to %d' % framerate2)
+		log.VLOG(4, 'Frame rate set for primary camera to %d' % framerate1)
+		log.VLOG(4, 'Frame rate set for secondary cameras to %d' % framerate2)
 
 		assert framerate1 == framerate2, "Primary and secondary camera frame rates are unequal!"
 		if main(framerate1, primary_id):
