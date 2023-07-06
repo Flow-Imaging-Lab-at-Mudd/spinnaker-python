@@ -1,0 +1,6 @@
+*.m~
+*.py~
+*.avi
+*.csv
+
+*/__pycache__/*

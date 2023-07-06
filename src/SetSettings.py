@@ -454,7 +454,11 @@ if __name__ == '__main__':
 	config.read(config_path)
 	if dict(config['default'].items()) == {}:
 		config_dict_primary, primary_id = parseConfigFile(config_path, 'primary')
+
+		log.VLOG(3, 'Primary camera ID set to %s' % primary_id)
+
 		config_dict_secondary = parseConfigFile(config_path, 'secondary')
+		
 		if main(config_dict_secondary, config_dict_primary, primary_id):
 			sys.exit(0)
 		else:

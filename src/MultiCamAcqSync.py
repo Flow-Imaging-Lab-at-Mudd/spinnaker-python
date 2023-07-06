@@ -86,8 +86,6 @@ def print_device_info(nodemap, cam_num):
 
 def run_multiple_cameras(device_nums, framerate, primary_index, capture_num):
 	"""
-	This function acts as the body of the example; please see NodeMapInfo example
-	for more in-depth comments on setting up cameras.
 
 	:param cam_list: List of cameras
 	:type cam_list: CameraList
@@ -108,14 +106,17 @@ def run_multiple_cameras(device_nums, framerate, primary_index, capture_num):
 
 		if primary_index != -1:
 			primary_index = device_nums.index(primary_index)
+			log.VLOG(3, 'Primary camera found')
 
 		cams = []
 		for i in num_cams:
 			if i != primary_index:
 				cams += [secondary.SecondaryCamera(device_nums[i])]
+				log.VLOG(3, 'Secondary camera added')
 			else:
 				cams += [primary.PrimaryCamera(device_nums[i])]
-
+				log.VLOG(3, 'Primary camera added')
+				
 		os.makedirs('MultiCamAcqTest', exist_ok=True)
 		if capture_num > 0:
 			os.makedirs('MultiCamAcqTest/{}'.format(capture_num), exist_ok=True)
@@ -129,6 +130,7 @@ def run_multiple_cameras(device_nums, framerate, primary_index, capture_num):
 		for i in num_cams:
 			if primary_index < 0:
 				cams[i].framerate = 'max'
+				log.VLOG(3, 'Setting camera frame rate to maximum')
 			if i != primary_index:
 				cams[i].prime(video_files[i], framerate, backend='opencv')
 
@@ -191,9 +193,6 @@ def run_multiple_cameras(device_nums, framerate, primary_index, capture_num):
 
 def main(framerate, primary_index, capture_num=-1):
 	"""
-	Example entry point; please see Enumeration example for more in-depth
-	comments on preparing and cleaning up the system.
-
 	:return: True if successful, False otherwise.
 	:rtype: bool
 	"""
@@ -309,8 +308,10 @@ def parseConfigFile(config_path, section):
 	if section == 'primary':
 		if p_config.getboolean('V3_3Enable') is not None:
 			primary_id = p_config.get('PrimaryID')
+			log.VLOG(3, 'Primary camera assigned to %s' % primary_id)
 		else:
 			primary_id = -1
+			log.VLOG(3, 'Primary camera not assigned')
 
 		return p_config.getint('AcquisitionFrameRate'), primary_id
 
@@ -335,6 +336,10 @@ if __name__ == '__main__':
 	if dict(config['default'].items()) == {}:
 		framerate1, primary_id = parseConfigFile(config_path, 'primary')
 		framerate2 = parseConfigFile(config_path, 'secondary')
+
+		log.VLOG(3, 'Frame rate set for primary camera to %d' % framerate1)
+		log.VLOG(3, 'Frame rate set for secondary cameras to %d' % framerate2)
+
 		assert framerate1 == framerate2, "Primary and secondary camera frame rates are unequal!"
 		if main(framerate1, primary_id):
 			sys.exit(0)
@@ -342,6 +347,8 @@ if __name__ == '__main__':
 			sys.exit(1)
 	else:
 		framerate = parseConfigFile(config_path, 'default')
+		log.VLOG(3, 'Frame rate set for default camera to %d' % framerate)
+
 		if main(framerate, -1):
 			sys.exit(0)
 		else:
