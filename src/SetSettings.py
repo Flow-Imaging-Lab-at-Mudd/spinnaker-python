@@ -53,6 +53,10 @@ full_settings = {'AcquisitionMode': Types.ENUM.value,
                  'ExposureMode': Types.ENUM.value,
                  'ExposureAuto': Types.ENUM.value,
                  'ExposureTime': Types.FLOAT.value,
+                 'BinningVertical': Types.INTEGER.value,
+                 'BinningHorizontal': Types.INTEGER.value,
+                 'Height': Types.INTEGER.value,
+                 'Width': Types.INTEGER.value,
                  'AutoExposureExposureTimeLowerLimit': Types.FLOAT.value,
                  'AutoExposureExposureTimeUpperLimit': Types.FLOAT.value,
                  'GainAuto': Types.ENUM.value,
@@ -207,7 +211,17 @@ def set_settings(cam_list, config_dict, config_dict_primary, primary_id):
                         device_serial_number = node_device_serial_number.GetValue()
                         log.VLOG(4, 'Camera %d serial number: %s' % (i, device_serial_number))
 
-                    temp_config_dict = config_dict_primary if i == primary_id else config_dict
+                    node_device_serial_number = PySpin.CStringPtr(
+                    cam.GetTLDeviceNodeMap().GetNode('DeviceSerialNumber'))
+                    
+                    if PySpin.IsAvailable(node_device_serial_number) and PySpin.IsReadable(node_device_serial_number):
+                        device_serial_number = node_device_serial_number.GetValue()
+                        
+                        if device_serial_number == primary_id:
+                            temp_config_dict = config_dict_primary
+                        else:
+                            temp_config_dict = config_dict
+                 
                     for setting in temp_config_dict:
                         result &= retrieve_settings(i, cam, setting, full_settings[setting])
 
@@ -216,6 +230,7 @@ def set_settings(cam_list, config_dict, config_dict_primary, primary_id):
                 except PySpin.SpinnakerException as ex:
                     log.error('Error: %s' % ex)
                     result = False
+                    
     except PySpin.SpinnakerException as ex:
         log.error('Error: %s' % ex)
         result = False
