@@ -16,10 +16,11 @@ __version__ = '0.3.1'
 
 
 def install_mp_handler(logger=None):
-	"""Wraps the handlers in the given Logger with an MultiProcessingHandler.
+	#Wraps the handlers in the given Logger with an MultiProcessingHandler.
+    #param logger: whose handlers to wrap. By default, the root logger.
 
-    :param logger: whose handlers to wrap. By default, the root logger.
-    """
+	print('Initiating MultiProcess logger') #debugging, not using VLOG because debugging the logger
+
 	if logger is None:
 		logger = logging.getLogger()
 
