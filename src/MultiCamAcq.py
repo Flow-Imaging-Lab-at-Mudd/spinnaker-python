@@ -32,6 +32,8 @@ import numpy as np
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../', 'lib/'))
 import logger
 
+from SetSettings import log_device_info
+
 if not __name__ == "__main__":
 	import traceback
 	filename = traceback.format_stack()[0]
@@ -389,8 +391,6 @@ if __name__ == '__main__':
 	args = parser.parse_args()
 	config_path = args.config_file
 	log = logger.getLogger(__file__, args.verbosity, args.logType)
-
-	from SetSettings import log_device_info
 
 	if main(folder="0"):
 		sys.exit(0)
