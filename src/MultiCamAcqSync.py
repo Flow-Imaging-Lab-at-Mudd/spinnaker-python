@@ -84,7 +84,7 @@ def print_device_info(nodemap, cam_num):
     return result
 
 
-def run_multiple_cameras(device_nums, framerate, primary_index, capture_num):
+def run_multiple_cameras(device_nums, framerate, exposure, binsize, primary_index, capture_num):
     """
 
     :param cam_list: List of cameras
@@ -124,7 +124,8 @@ def run_multiple_cameras(device_nums, framerate, primary_index, capture_num):
 
         if primary_index >= 0:
             cams[primary_index].framerate = framerate
-            cams[primary_index].binsize = (1,1) 
+            cams[primary_index].exposure = exposure
+            cams[primary_index].binsize = binsize
             # override binsize for now, need to add to config parser
 
         for i in num_cams:
@@ -132,7 +133,8 @@ def run_multiple_cameras(device_nums, framerate, primary_index, capture_num):
                 cams[i].framerate = 'max'
                 log.VLOG(4, 'Setting camera frame rate to maximum')
             if i != primary_index:
-                cams[i].binsize = (1,1)
+                cams[i].binsize = binsize
+                cams[i].exposure = exposure
                 cams[i].prime(video_files[i], framerate, backend='opencv')
 
         if primary_index >= 0:
@@ -192,7 +194,7 @@ def run_multiple_cameras(device_nums, framerate, primary_index, capture_num):
     return result
 
 
-def main(framerate, primary_index, capture_num=-1):
+def main(framerate, exposure, binsize, primary_index, capture_num=-1):
     """
     :return: True if successful, False otherwise.
     :rtype: bool
@@ -283,7 +285,7 @@ def main(framerate, primary_index, capture_num=-1):
     # Release system instance
     system.ReleaseInstance()
 
-    result &= run_multiple_cameras(device_nums, framerate, primary_index, capture_num)
+    result &= run_multiple_cameras(device_nums, framerate, exposure, binsize, primary_index, capture_num)
 
     log.VLOG(1, 'Acquisition complete... \n')
 
@@ -302,9 +304,21 @@ def parseConfigFile(config_path, section):
     # create config parser and read config file
     config = configparser.ConfigParser(interpolation=configparser.BasicInterpolation())
     config.read(config_path)
-    p = {}
+    #p = {}
     p_config = config[section]
 
+    framerate = p_config.getint('AcquisitionFrameRate')
+    exposure = p_config.getint('ExposureTime')
+    
+    # check that exposure time is compatible with framerate
+    exposurecheck = int(1/framerate*1000000);
+    if exposurecheck < exposure:
+        log.warning('Maximum exposure time incompatible with frame rate. Reducing exposure time.')
+        exposure = exposurecheck - 5; # exposure margin of 5us below maximum - check actual camera spec here    
+    
+    binh = p_config.getint('BinningHorizontal')
+    binv = p_config.getint('BinningVertical')
+    binsize = (binh,binv)
 
     if section == 'primary':
         if p_config.getboolean('V3_3Enable') is not None:
@@ -313,10 +327,10 @@ def parseConfigFile(config_path, section):
         else:
             primary_id = -1
             log.VLOG(3, 'Primary camera not assigned')
+            
+        return framerate, exposure, binsize, primary_id
 
-        return p_config.getint('AcquisitionFrameRate'), primary_id
-
-    return p_config.getint('AcquisitionFrameRate')
+    return framerate, exposure, binsize
 
 
 if __name__ == '__main__':
@@ -335,22 +349,22 @@ if __name__ == '__main__':
     config = configparser.ConfigParser(interpolation=configparser.BasicInterpolation())
     config.read(config_path)
     if dict(config['default'].items()) == {}:
-        framerate1, primary_id = parseConfigFile(config_path, 'primary')
-        framerate2 = parseConfigFile(config_path, 'secondary')
+        framerate1, exposure1, binsize1, primary_id = parseConfigFile(config_path, 'primary')
+        framerate2, exposure2, binsize2 = parseConfigFile(config_path, 'secondary')
 
         log.VLOG(4, 'Frame rate for primary camera is %d' % framerate1)
         log.VLOG(4, 'Frame rate for secondary cameras is %d' % framerate2)
 
         assert framerate1 == framerate2, "Primary and secondary camera frame rates are unequal!"
-        if main(framerate1, primary_id):
+        if main(framerate1, exposure1, binsize1, primary_id):
             sys.exit(0)
         else:
             sys.exit(1)
     else:
-        framerate = parseConfigFile(config_path, 'default')
+        framerate, exposure, binsize = parseConfigFile(config_path, 'default')
         log.VLOG(3, 'Frame rate set for default camera to %d' % framerate)
 
-        if main(framerate, -1):
+        if main(framerate, exposure, binsize -1):
             sys.exit(0)
         else:
             sys.exit(1)
