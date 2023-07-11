@@ -270,6 +270,7 @@ def log_device_info(nodemap, cam_num, primary_id):
                 log.VLOG(3, '%%% {0}: {1}'.format(node_feature.GetName(),
                                                  node_feature.ToString() if PySpin.IsReadable(node_feature)
                                                  else 'Node not readable'))
+
         else:
             log.warning('Device control information not available.\n')
 

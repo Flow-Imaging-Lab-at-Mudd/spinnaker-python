@@ -124,12 +124,15 @@ def run_multiple_cameras(device_nums, framerate, primary_index, capture_num):
 
         if primary_index >= 0:
             cams[primary_index].framerate = framerate
+            cams[primary_index].binsize = (1,1) 
+            # override binsize for now, need to add to config parser
 
         for i in num_cams:
             if primary_index < 0:
                 cams[i].framerate = 'max'
                 log.VLOG(4, 'Setting camera frame rate to maximum')
             if i != primary_index:
+                cams[i].binsize = (1,1)
                 cams[i].prime(video_files[i], framerate, backend='opencv')
 
         if primary_index >= 0:
@@ -335,8 +338,8 @@ if __name__ == '__main__':
         framerate1, primary_id = parseConfigFile(config_path, 'primary')
         framerate2 = parseConfigFile(config_path, 'secondary')
 
-        log.VLOG(4, 'Frame rate set for primary camera to %d' % framerate1)
-        log.VLOG(4, 'Frame rate set for secondary cameras to %d' % framerate2)
+        log.VLOG(4, 'Frame rate for primary camera is %d' % framerate1)
+        log.VLOG(4, 'Frame rate for secondary cameras is %d' % framerate2)
 
         assert framerate1 == framerate2, "Primary and secondary camera frame rates are unequal!"
         if main(framerate1, primary_id):

@@ -272,7 +272,7 @@ def run_multiple_cameras(cam_list, num_frames, folder):
 				nodemap_tldevice = cam.GetTLDeviceNodeMap()
 
 				# Print device information
-				result &= log_device_info(nodemap_tldevice, i)
+				result &= log_device_info(nodemap_tldevice, i, None)
 
 		# Initialize each camera
 		#
