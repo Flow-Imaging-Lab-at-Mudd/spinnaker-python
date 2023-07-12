@@ -25,7 +25,7 @@ def parseConfigFile(config_path):
 	# create config parser and read config file
 	config = configparser.ConfigParser(interpolation=configparser.BasicInterpolation())
 	config.read(config_path)
-	p_config = config['calib-images']
+	p_config = config['ref-calib-images']
 
 	range_min = p_config.getint('RangeMin')
 	zC = p_config.getint('zC')
