@@ -108,7 +108,7 @@ def acquire_images(cam_list, num_frames, folder):
         # *** NOTES ***
         # By default, if no specific color processing algorithm is set, the image
         # processor will default to NEAREST_NEIGHBOR method.
-        processor.SetColorProcessing(PySpin.HQ_LINEAR)
+        processor.SetColorProcessing(PySpin.SPINNAKER_COLOR_PROCESSING_ALGORITHM_HQ_LINEAR)
 
         for i, cam in enumerate(cam_list):
             result &= prepare_camera(i, cam)
